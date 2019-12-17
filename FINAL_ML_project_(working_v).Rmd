@@ -1,0 +1,1599 @@
+---
+title: "ML project: Caesarian Binary Classification"
+author: "Ganbold,MungunSarnai, BMI-MS"
+date: "Sep-Nov.2019"
+output: html_document
+---
+
+# Project Proposal
+
+#“… via caesarian section or not? Supervised Machine Learning Binary Classification Algorithms for clinical decision support” 
+
+
+##Social aspect of the problem:
+The example of surgery here is c-section deliveries. One of opinions is that medical practices are performing higher numbers of it than it is really medically necessary.
+With this work, we can see how ML can help us to better understand clinical decisions whether to go for c-section or not.
+
+##Technical aspect of the problem:
+Development of high accuracy ML classifiers as clinical support for making decisions about surgeries.
+
+
+##Data
+The dataset is univariate (*csv.arff) and contains most important clinical information about 80 patients who delivered either by c-section or naturally. 
+There are 5 features and one binary response - the status of Caesarian section surgery.
+The data is tidy. 2 features (age and delivery number) are numeric and 3 others are categorical ( delivery time/term, blood pressure and heart problem).
+
+
+#Importing data:
+
+```{r data import, creating additional renamed columns for vizualization}
+
+library(foreign)
+cs <- read.arff("/Users/mungunsarnaiganbold/Desktop/ML_2019/ML_project_proposal_1/caesarian.csv.arff")
+
+#or from file:
+#cs <- read.arff("caesarian.csv.arff")
+
+cs
+summary(cs)
+str(cs)
+#checking for NAs:
+summary(is.na(cs))
+# the data is tidy, there are no NAs and all variables are logical.
+
+
+# Creating 6 more renamed and sometimes relabeled columns to be used in visualizing input variables: 
+cs$'Age_visual' <-  cs$'Age'
+cs$'HeartProblem_visual' <- cs$'Heart Problem'
+
+cs$`Heart Problem` <-  NULL
+cs$'Heart Problem' <-  factor(cs$'HeartProblem_visual', labels = c('absent'='0', 'present'='1'))
+
+
+cs$'Delivery Number' <- cs$'Delivery number'
+cs$`Delivery number` <- NULL
+cs$'DeliveryNumber_visual' <-  cs$`Delivery Number`
+
+cs$'Delivery Time' <- cs$'Delivery time'
+cs$`Delivery time` <- NULL
+cs$`DeliveryTime_visual` <- factor(cs$`Delivery Time`, labels = c("0" = "timely" , "1" = "premat." , "2" = "latecom."))
+
+cs$`Blood Pressure` <-  cs$`Blood of Pressure`
+cs$`Blood of Pressure` <- NULL
+cs$`BloodPressure_visual` <- factor(cs$`Blood Pressure`, labels = c("0" = "low" , "1" = "normal" , "2" = "high"))
+
+
+cs$Caesarian_visual <- factor(cs$Caesarian, labels = c("0" = "no" , "1" = "yes" ))
+
+
+#Note that in Heart Problem: "0"=apt=absent; "1"=inept=present. Thus, let's label this, too:
+cs$'HeartProblem_visual' <- factor(cs$`Heart Problem`, labels = c("0" = "absent" , "1" = "present" )) 
+
+head(cs)
+
+#perfect. Now we have  6 input variables (Age, Caesarian, Heart Problem, Delivery Number, Delivery Time and Blood Pressure) to be used for modeling
+#and 6 new columns (Age_visual, HeartProblem_visual, DeliveryNumber_visual, DeliveryTime_visual, BloodPressure_visual and Caesarian_visual) for better vizualized graphs (coding for levels translated into words).
+
+#let's check the type of values again for modeling:
+str(cs) 
+# all 12 columns are factors
+```
+
+
+Univariate Visualization:
+
+```{r univariate visualization}
+
+par(mfrow = c(2,3))
+# Plot Age
+plot(cs$`Age_visual`, main = 'Distribution by age', ylab = 'number of observations')
+
+plot(cs$`DeliveryTime_visual`, main = 'Delivery term', ylab = 'number of observations')
+
+plot(cs$`DeliveryNumber_visual`, main = 'Number of deliveries per woman', ylab = 'number of observations')
+
+plot(cs$`Caesarian_visual`, main = 'C-section status', ylab = 'number of observations')
+
+plot(cs$`BloodPressure_visual`, main = 'Blood pressure status', ylab = 'number of observations')
+
+plot(cs$`HeartProblem_visual`, main = 'Heart disease status', ylab = 'number of observations')
+
+```
+
+
+===================================================================
+
+*Workflow planning for this data analysis and models preparation:*
+
+###I. Supervised Machine Learning Methods to be applied to the data:
+
+1. MCA and Logistic Regression, 
+2. kNN, 
+3. Random Forest, 
+4. Naïve Bayes and 
+5. SVM
+6. Optionally, Neural network and Ensemble
+
+
+###II. Accuracy of computing on dataset via:
+
+- True Positive Rate (sensitivity), 
+- False Positive Rate (specificity), 
+- Precision, 
+- F1 rate (score for accuracy), 
+- MCC Rate (measure of quality of binary classification)
+- AUCs (diagnostic ability of a classifier).
+
+
+###III. Statistical evaluation of the results:
+- Kappa static, 
+- Mean absolute error, 
+- Root mean squared error, 
+- Relative absolute error and 
+- Root relative squared error. 
+
+====================================================================
+
+#0. Statistics:
+
+Analyzing independence of variables:
+
+*revise text:
+heartProblem is the only true nominal categorical value in the dataset. We perform ChiSq test on it (original unscaled value used) to measure its association against binary response:
+
+```{r Chi-Sq test for nominal categorical value}
+
+head(cs)
+
+chisq.test(cs$'Heart Problem', cs$'Caesarian')
+chisq.test(cs$'Blood Pressure', cs$'Caesarian')
+chisq.test(cs$'Delivery Time', cs$'Caesarian')
+chisq.test(cs$'Delivery Number', cs$'Caesarian')
+chisq.test(cs$'Age', cs$'Caesarian')
+
+```
+
+```{r Mozaic plot for nominal categorical value}
+
+#vizualizing ChiSq stats:
+mosaicplot(~ HeartProblem_visual + Caesarian_visual, data = cs, main = "Mozaic plot of heart problem status vs Caesarian response\n and its ChiSq statistics", shade = TRUE)
+```
+(Note:
+We can observe the p-values of each chi.squared test. If p-value is less than 0.05 significance level, there is no evidence against the null hypothesis that both variables are independent. The value of χ² is given by the sum of all the standardized residuals. It tests whether the evidence in the sample is strong enough to generalize the association for a larger population. The null hypothesis for a chi-square independence test is that two categorical variables are independent in some population.)
+
+The same ChiSq test stats reveal that delivery number as well as delivery term are not necessarily associated with caesarian status. 
+
+Heart problem shows potential association with the response and the assuption can be generalized. 
+
+
+With Cramer's V test we can check the strength of this association now:
+
+```{r Checking strength of above discovered association with Cramer's V test}
+
+library(lsr)
+cramersV(cs$'Heart Problem', cs$'Caesarian')
+
+#performing same test for the other values, too
+cramersV(cs$'Blood Pressure', cs$'Caesarian')
+cramersV(cs$'Delivery Time', cs$'Caesarian')
+cramersV(cs$'Delivery Number', cs$'Caesarian')
+cramersV(cs$'Age', cs$'Caesarian')
+```
+#0.326442
+Conclusion: 
+There is a medium strong and positive association between heartProblem and Caesarian status.
+
+
+Next, for ordinal variables, such as Delivery Time (term),and Blood Pressure as well as for numeric values (age and deliveryNumber) is appropriate to perform Wilcoxon rank sum test and Correlation test by Kendall and also by Spearman. However, I will perform it on all variables out of curosity:
+
+
+```{r ordinal->numeric; Pair-wise Correlation by Kendall and Spearman}
+#Spearman Rank Correlation test (for ordinal)
+#Kendall-Tau coefficient, statistics for ordinal associations
+#Pearson Correlation (for numeric w or w/o outliers)
+
+
+#converting ordinary values to numeric:
+cs$'Caesarian_numeric' <-  as.numeric(substr(cs$'Caesarian',1,2)) 
+cs$'BloodPressure_numeric' <-  as.numeric(substr(cs$'Blood Pressure',1,2))
+cs$'DeliveryTime_numeric' <-  as.numeric(substr(cs$'Delivery Time',1,2))
+cs$'DeliveryNumber_numeric' <- as.numeric(substr(cs$'Delivery Number',1,2))
+cs$'Age_numeric' <- as.numeric(substr(cs$'Age',1,2))
+cs$'HeartProblem_numeric' <- as.numeric(substr(cs$'Heart Problem',1,2))
+
+#correlation coefficients:
+COR_bp<- cor(x=cs$'BloodPressure_numeric', y=cs$'Caesarian_numeric', method = "kendall")
+COR_dt<- cor(x=cs$'DeliveryTime_numeric', y=cs$'Caesarian_numeric', method = "kendall")
+COR_hp<- cor(x=cs$'HeartProblem_numeric', y=cs$'Caesarian_numeric', method = "kendall")
+COR_a<- cor(x=cs$'Age_numeric', y=cs$'Caesarian_numeric', method = "spearman")
+COR_dn<- cor(x=cs$'DeliveryNumber_numeric', y=cs$'Caesarian_numeric', method = "spearman")
+
+#correlation for initially numeric variables:
+COR_bp
+COR_dn
+#correlation for originally ordinal or nominal categ variables:
+COR_a
+COR_dt
+COR_hp
+```
+
+
+```{r Wilcoxon Rank Sum test and its p-values (ordinal categorical values); table}
+
+library(MASS)
+#Wilcoxon Rank Sum test:
+w1<- wilcox.test(x=cs$'BloodPressure_numeric', y=cs$'Caesarian_numeric')
+w2<- wilcox.test(x=cs$'DeliveryTime_numeric', y=cs$'Caesarian_numeric')
+w3<- wilcox.test(x=cs$'Age_numeric', y=cs$'Caesarian_numeric')
+w4<- wilcox.test(x=cs$'DeliveryNumber_numeric', y=cs$'Caesarian_numeric')
+w5<- wilcox.test(x=cs$'HeartProblem_numeric', y=cs$'Caesarian_numeric')
+
+#creating one table to present p-values from Wilcoxon tests in one place:
+Wp_values <- c(w1$p.value, w2$p.value, w3$p.value, w4$p.value, w5$p.value) #row1
+Wp_values <- round(Wp_values,3)
+variables <- c('blood pressure', 'delivery time', 'age', 'delivery number', 'heart problem')  #row2
+W <- rbind(variables, Wp_values)
+W
+```
+(p-values tell us wether association of each variable with response is significant or not.)
+
+
+```{r putting together results from Cor and Wilcoxon p-value}
+KScor_coef <- round(c(COR_bp,COR_dt,COR_a, COR_dn,COR_hp),3)
+COR <- rbind(variables,KScor_coef,Wp_values)
+COR #Wilcoxon Rank Sum correlation's p-values; Correlations by Pearson and Kendall
+```
+
+*Conclusion on correlations statistics:*
+*Correlation test tells us that all variables have a weak (+/- ) association with the response. Wilcoxon Runk Sum test's p-values acknowledge this statement.*
+
+
+# Correlation Matrix for features and its plot:
+
+```{r calculating correlations matrix (categorical/original values)}
+#install.packages("Hmisc")
+library(Hmisc)
+
+corrM_data <- cs[c(1,5,6,8,10)] #Age, Heart Problem, Delivery Number, Delivery Time, Blood Pressure
+corrm_data <- as.matrix(corrM_data)
+corr_m <- rcorr(corrm_data, type = c("spearman"))
+corr_m 
+```
+
+```{r corrplot (numeric values)}
+
+library(corrplot)
+
+CORRplot <- cor(cs[,c("BloodPressure_numeric", "DeliveryTime_numeric", "DeliveryNumber_numeric", "Age_numeric", "HeartProblem_numeric")])
+corrplot(CORRplot, method = "circle", order="hclust")
+```
+
+From features correlation plot, one can see that there are no features among given which would have significantly strong correlation. This information could get handy for improving models acuracy later. 
+
+
+Next, we will visualize contribution of each feature (in counts) to the level of the response:
+
+```{r ggplots of each feature and response level}
+
+#proportion on yes/no for c-section for each feature:
+Age_ggplot <- ggplot(data = cs[,c(1,2,5,6,8,10)], aes(x = cs$Age_numeric, fill = cs$Caesarian_visual)) + 
+  geom_histogram(position="identity", alpha=0.5, bins= 25)  +
+  ggtitle("Age by caesarian status")+
+  theme_bw()
+Age_ggplot
+
+BP_ggplot <- ggplot(data = cs[,c(1,2,5,6,8,10)], aes(x =cs$BloodPressure_numeric, fill = cs$Caesarian_visual)) + 
+  geom_histogram(position="identity", alpha=0.5, bins= 25)  +
+  ggtitle("Blood pressure by caesarian status")+
+  theme_bw()
+BP_ggplot
+
+DN_ggplot <- ggplot(data = cs[,c(1,2,5,6,8,10)], aes(x = cs$DeliveryNumber_numeric, fill = cs$Caesarian_visual)) + 
+  geom_histogram(position="identity", alpha=0.5, bins= 25)  +
+  ggtitle(" Delivery number by caesarian status")+
+  theme_bw()
+DN_ggplot
+
+DT_ggplot <- ggplot(data = cs[,c(1,2,5,6,8,10)], aes(x = cs$DeliveryTime_numeric, fill = cs$Caesarian_visual)) + 
+  geom_histogram(position="identity", alpha=0.5, bins= 25)  +
+  ggtitle("Delivery time (term) by caesarian status")+
+  theme_bw()
+DT_ggplot
+
+HP_ggplot <- ggplot(data = cs[,c(1,2,5,6,8,10)], aes(x = cs$HeartProblem_numeric, fill = cs$Caesarian_visual)) + 
+  geom_histogram(position="identity", alpha=0.5, bins= 25)  +
+  ggtitle("Heart problem by caesarian status")+
+  theme_bw()
+HP_ggplot
+
+#install.packages("gridExtra")
+library(gridExtra)
+grid.arrange(Age_ggplot, BP_ggplot, DT_ggplot, DN_ggplot, HP_ggplot)
+```
+(This plots are part of exploratory analysis and they are self-explanatory. The interesting thing to note here is the bin size for "DeliveryNumber_numeric" variable. Its observation counts in bin '4' is under 5, which doesn't meat statistical criterias. We need to keep it notet for future data transformation). 
+
+=======================================================
+
+# Data Splitting
+
+```{r loading libraries}
+library(foreign)
+library(e1071) 
+library(caret) 
+library(ROCR)
+```
+
+We will split our transormed data 20% tran and 80% test:
+
+```{r data splitting}
+
+head(cs)
+library(caret)
+seed <- 324
+set.seed(seed)
+trainIndex_cs <- createDataPartition(cs$'Caesarian', p=0.80, list=FALSE)
+# selecting 20% of the data for validation:
+validation_cs <- cs[-trainIndex_cs,]  #[15:18]
+# will use the remaining 80% of data to training and testing the models:
+train_cs <- cs[trainIndex_cs,]  #[65: 18]
+# checking:
+dim(train_cs)
+#each of 6 varibales has an original column, the renamed one for univariate data visualization and a numeric one for analysis.
+head(train_cs)
+
+dim(validation_cs)
+
+```
+
+
+#1. Let's begin with building simple training models by default:
+
+```{r subsetting and splitting  numeric data}
+# features are numeric, response is binary.
+
+library(e1071)
+#pulling out only numeric columns from train_cs set:
+set.seed(seed)
+train_numeric <- train_cs[, c("Caesarian", "Age_numeric", "BloodPressure_numeric", "DeliveryNumber_numeric", "DeliveryTime_numeric", "HeartProblem_numeric")]
+#train_numeric is now our training set to work with
+##pulling out only numeric columns from train_cs set:
+set.seed(seed)
+validation_numeric <- validation_cs[, c("Caesarian", "Age_numeric", "BloodPressure_numeric", "DeliveryNumber_numeric", "DeliveryTime_numeric", "HeartProblem_numeric")]
+#validation_numeric is now our validation set to work with
+```
+
+```{r building models by default and comparing them}
+
+library(caret)
+
+seed <-  7
+set.seed(seed)
+metricD <- "Accuracy"
+
+#Note:
+#We will use LDA here because it supports both binary and multi-class classification. 
+#Our inputs are close to normalized ~ meet Gaussian requirements.
+#We will try LDA and GLMNET without pre-processing first.
+
+
+#1.LDA.default
+set.seed(seed)
+train.ldaD <- train(Caesarian~., data = train_numeric, method ='lda', metric=metricD)
+print(train.ldaD)
+# training accuracy 60.34 %
+#validating:
+set.seed(seed)
+ldaD_predicted<- predict(train.ldaD, newdata=validation_numeric[,-1])
+CM_ldaD<- confusionMatrix(ldaD_predicted, validation_numeric[,1])
+CM_ldaD
+#validation accuracy is 80%, Kappa 0.6154.
+
+
+#2. GLMNET.default
+set.seed(seed)
+train.glmnetD <- train(Caesarian~., data = train_numeric, method ='glmnet', metric=metricD)
+train.glmnetD
+#alpha=0.1 (10% Ridge and 90% LASSO)
+#lambda = 0.0003265986
+#training accuracy 0.5840296  kappa 0.1623807
+#validation:
+glmnetD_predicted <-  predict(train.glmnetD, newdata=validation_numeric[,-1])
+CM_glmnetD <- confusionMatrix(glmnetD_predicted, validation_numeric[,1])
+CM_glmnetD
+# validation accuracy 80 %, Kappa : 0.6154
+
+
+#3. Naive Bayes.by default:
+library(htmltools)
+library("klaR")
+set.seed(seed)
+train.nbD <- train(Caesarian~., data = train_numeric, method ='nb', metric=metricD)
+train.nbD
+#Bootstrapped 25 repeats
+#Tuning parameter 'fL' was held constant at a value of 0
+#Tuning parameter 'adjust' was held constant at a value of 1
+#Accuracy was used to select the optimal model using the largest value.
+#The final values used for the model were fL = 0, usekernel = FALSE and adjust = 1.
+#usekernel  Accuracy   Kappa    
+#FALSE      0.6635167  0.2999626
+#TRUE      0.6099009  0.2350972
+
+#validation:
+set.seed(seed)
+nbD_predicted <-  predict(train.nbD, newdata=validation_numeric[,-1])
+CM_nbD <- confusionMatrix(nbD_predicted, validation_numeric[,1])
+CM_nbD
+# validation accuracy 73.33 %, Kappa : 0.4737  
+
+
+#4. kNN.by default:
+set.seed(seed)
+train.knnD <- train(Caesarian~., data = train_numeric, method ='knn', metric=metricD)
+train.knnD
+#k=9, training accuracy 57.80%, Kappa = 0.1525 
+#validation:
+set.seed(seed)
+#knnD_predicted <-  predict(train.knnD, newdata=validation_numeric[,-1], type = "prob")  ##for ROC
+knnD_predicted2 <-  predict(train.knnD, newdata=validation_numeric[,-1])  ##for cinfusionMatrix
+CM_knnD <- confusionMatrix(knnD_predicted2, validation_numeric[,1])
+CM_knnD
+# validation accuracy 53.33 % -dropped a lot from the training, Kappa : 0.0541
+
+
+#5. SVM (Radial Kernel).default
+set.seed(seed)
+train.svmD <- train(Caesarian~., data = train_numeric, method ='svmRadial', metric=metricD)
+train.svmD
+#sigma = 0.2294869 and C = 0.5
+#training accuracy 0.6378996, Kappa = 0.2565695
+#validation:
+set.seed(seed)
+svmD_predicted <-  predict(train.svmD, newdata=validation_numeric[,-1])
+CM_svmD <- confusionMatrix(svmD_predicted, validation_numeric[,1])
+CM_svmD
+# validation accuracy 66.67 %
+# good balance of bias and variance.
+
+
+#6. Classification and Regression Trees (CART) by default 
+set.seed(seed)
+train.cartD <- train(Caesarian~., data = train_numeric, method ='rpart', metric=metricD)
+train.cartD
+#cp=0.03571429  
+#training accuracy 0.5642393, kappa 0.12160474
+#validation:
+set.seed(seed)
+cartD_predicted <-  predict(train.cartD, newdata=validation_numeric[,-1])
+CM_cartD <- confusionMatrix(cartD_predicted, validation_numeric[,1])
+CM_cartD
+# validation accuracy 66.67 %, Kappa : 0.359
+
+
+#7. Random Forest.by default:
+set.seed(seed)
+train.rfD <- train(Caesarian~., data = train_numeric, method ='rf', metric=metricD)
+train.rfD
+#mtry = 2  
+#training accuracy=0.5701959  0.1249849
+#validation:
+set.seed(seed)
+rfD_predicted <-  predict(train.rfD, newdata=validation_numeric[,-1])
+CM_rfD <- confusionMatrix(rfD_predicted, validation_numeric[,1])
+CM_rfD
+# validation accuracy 60.00 %, Kappa : 0.2105
+# also a good bias and variance balance
+
+
+#Comparison of models built by default:
+set.seed(seed)
+default_models_list <- list(LDA_dflt = train.ldaD, LogisticRegression_dflt=train.glmnetD, NaiveBayes_dflt=train.nbD, kNN_dflt=train.knnD, RegressionTrees_dflt=train.cartD, SVM_Radial_dflt=train.svmD,RandomForest_dflt = train.rfD)
+
+default_results<- resamples(default_models_list)
+summary(default_results)
+
+library(lattice)
+dotplot(default_results) 
+```
+
+```{r table of validation accuracies (for the models by default)}
+
+```
+
+
+*Integrating Cross Validation*
+
+Our test harness configuration will be 10-fold cross validation with 3 repeats. Evaluation of algorithms will be done via Accuracy and Kappa
+
+```{r Models with CV x10}
+
+library(caret)
+
+#x10 CV harness:
+set.seed(seed)
+trainControl <- trainControl(method = 'repeatedcv', number=10, repeats = 3)
+metric <- "Accuracy"
+
+
+#1.LDA.CV
+set.seed(seed)
+train.ldaCV <- train(Caesarian~., data = train_numeric, method ='lda', metric=metric, trControl = trainControl)
+print(train.ldaCV)
+#0.5642857  0.1239658 - dropped
+#validating:
+set.seed(seed)
+ldaCV_predicted<- predict(train.ldaCV, newdata=validation_numeric[,-1])
+CM_ldaCV<- confusionMatrix(ldaCV_predicted, validation_numeric[,1])
+CM_ldaCV
+#validation accuracy is remaining unchanged = 80.00% from the default model.
+#Kappa : 0.6154
+
+
+#2. GLMNET.CV
+set.seed(seed)
+train.glmnetCV <- train(Caesarian~., data = train_numeric, method ='glmnet', metric=metric, trControl=trainControl)
+train.glmnetCV
+#alpha=1 (0% Ridge and 100% LASSO)
+#lambda=0.03265986
+#0.5884127  0.1568041 (was 58.40%)
+#validation:
+glmnetCV_predicted <-  predict(train.glmnetCV, newdata=validation_numeric[,-1])
+CM_glmnetCV <- confusionMatrix(glmnetCV_predicted, validation_numeric[,1])
+CM_glmnetCV
+# validation accuracy even dropped! Became 66.67 %, was 80% by default!
+# Kappa : 0.2857  
+
+
+#3. NB.CV
+library(htmltools)
+library("klaR")
+set.seed(seed)
+train.nbCV <- train(Caesarian~., data = train_numeric, method ='nb', metric=metric, trControl=trainControl)
+train.nbCV
+#Tuning parameter 'fL' was held constant at a value of 0
+#Tuning parameter 'adjust' was held constant at a value of 1
+#Accuracy was used to select the optimal model using the largest value.
+#The final values used for the model were fL = 0, usekernel = FALSE and adjust = 1.
+#usekernel  Accuracy   Kappa    
+#FALSE      0.6574603  0.2857191
+#TRUE      0.6387302  0.2585294
+#no change
+#validation:
+set.seed(seed)
+nbCV_predicted <-  predict(train.nbCV, newdata=validation_numeric[,-1])
+CM_nbCV <- confusionMatrix(nbCV_predicted, validation_numeric[,1])
+CM_nbCV
+# validation accuracy remains unchnaged 73.33% 
+# Kappa : 0.4737
+
+
+#4. kNN.CV:
+set.seed(seed)
+train.knnCV <- train(Caesarian~., data = train_numeric, method ='knn', metric=metric, trControl=trainControl)
+train.knnCV
+#k=7, training accuracy 0.6166667, Kappa0.2150305 (was k=9, 57.8%)
+#validation:
+set.seed(seed)
+knnCV_predicted <-  predict(train.knnCV, newdata=validation_numeric[,-1])
+CM_knnCV <- confusionMatrix(knnCV_predicted, validation_numeric[,1])
+CM_knnCV
+# validation accuracy dropped to 46.67% (was 53.33% by default)
+
+
+#5. SVM (Radial Kernel).CV
+set.seed(seed)
+train.svmCV <- train(Caesarian~., data = train_numeric, method ='svmRadial', metric=metric, trControl=trainControl)
+train.svmCV
+#sigma = 0.2294869 and C = 0.5
+#training accuracy 0.647460, kappa=0.25639566 
+#validation:
+set.seed(seed)
+svmCV_predicted <-  predict(train.svmCV, newdata=validation_numeric[,-1])
+CM_svmCV <- confusionMatrix(svmCV_predicted, validation_numeric[,1])
+CM_svmCV
+# validation accuracy remains unchanged = 66.67 %
+# again, well balanced model
+
+#6. CART CV
+set.seed(seed)
+train.cartCV <- train(Caesarian~., data = train_numeric, method ='rpart', metric=metric, trControl=trainControl)
+train.cartCV
+#cp=0.03571429
+# training accuracy 0.6260317, kappa 0.23265898
+#validation:
+set.seed(seed)
+cartCV_predicted <-  predict(train.cartCV, newdata=validation_numeric[,-1])
+CM_cartCV <- confusionMatrix(cartCV_predicted, validation_numeric[,1])
+CM_cartCV
+# validation accuracy remains unchanged 66.67 %
+
+
+#7. Random Forest CV:
+set.seed(seed)
+train.rfCV <- train(Caesarian~., data = train_numeric, method ='rf', metric=metric, trControl=trainControl)
+train.rfCV
+#mtry = 3 
+#training accuracy 0.5460317  0.05615426 (dropped, was 57%)
+#validation:
+set.seed(seed)
+rfCV_predicted <-  predict(train.rfCV, newdata=validation_numeric[,-1])
+CM_rfCV <- confusionMatrix(rfCV_predicted, validation_numeric[,1])
+CM_rfCV
+# validation accuracy dropped to 46.67%, Kappa : -0.0526 (dropped dramatically)
+
+
+#Comparing models built with cross valudation:
+set.seed(seed)
+CV_models_list<-list(LDA_CV=train.ldaCV, LogisticRegression_CV=train.glmnetCV, NaiveBayes_CV=train.nbCV, kNN_CV=train.knnCV, RegressionTrees_CV=train.cartCV, SVM_Radial_CV=train.svmCV,RandomForest_CV = train.rfCV)
+CV_results<- resamples(CV_models_list)
+summary(CV_results) 
+
+library(lattice)
+dotplot(CV_results)
+
+```
+
+*Conclusion on part1:
+
+Naive Bayese, kNN, SVM with Radial Kernell and Random Forest are the best models to work on further with this dataset.
+
+
+
+
+
+```{r models with preprocessed data (centering and scaling)}
+
+set.seed(seed)
+trainControl <- trainControl(method = 'repeatedcv', number=10, repeats = 3)
+metric <- "Accuracy"
+preProc=c("center", "scale")
+
+
+#1.LDA.PreProc
+set.seed(seed)
+train.ldaPreProc <- train(Caesarian~., data = train_numeric, method ='lda', metric=metric, trControl = trainControl, preProc = preProc)
+train.ldaPreProc
+#0.5642857  0.1239658 -same
+#validating:
+set.seed(seed)
+ldaPreProc_predicted<- predict(train.ldaPreProc, newdata=validation_numeric[,-1])
+CM_ldaPreProc<- confusionMatrix(ldaPreProc_predicted, validation_numeric[,1])
+CM_ldaPreProc
+#validation accuracy is remaining unchanged = 80.00% from the default model.
+#Sensitivity : 1.0000, Specificity : 0.6667  
+#Kappa : 0.6154 - same
+
+
+#2. GLMNET.PreProc
+set.seed(seed)
+train.glmnetPreProc <- train(Caesarian~., data = train_numeric, method ='glmnet', metric=metric, trControl=trainControl, preProc=preProc)
+train.glmnetPreProc
+#alpha=1 (0% Ridge and 100% LASSO)-same
+#lambda=0.03265986-same
+#0.5884127  0.1568041 -same as in CV (was 58.40% by default)
+#validation:
+glmnetPreProc_predicted <-  predict(train.glmnetPreProc, newdata=validation_numeric[,-1])
+CM_glmnetPreProc <- confusionMatrix(glmnetPreProc_predicted, validation_numeric[,1])
+CM_glmnetPreProc
+# validation accuracy is same as in CV 66.67 % (was 80% by default)!
+# Kappa : 0.2857  
+# Sensitivity : 0.5000, Specificity : 0.7778      
+
+
+#3. NB.PreProc
+library(htmltools)
+library("klaR")
+set.seed(seed)
+train.nbPreProc <- train(Caesarian~., data = train_numeric, method ='nb', metric=metric, trControl=trainControl, preProc=preProc)
+train.nbPreProc
+#Tuning parameter 'fL' was held constant at a value of 0
+#Tuning parameter 'adjust' was held constant at a value of 1
+#Accuracy was used to select the optimal model using the largest value.
+#The final values used for the model were fL = 0, usekernel = FALSE and adjust = 1.
+#usekernel  Accuracy   Kappa    
+#FALSE      0.6574603  0.2857191
+#TRUE      0.6387302  0.2585294
+#no change from CV or default.
+#validation:
+set.seed(seed)
+nbPreProc_predicted <-  predict(train.nbPreProc, newdata=validation_numeric[,-1])
+CM_nbPreProc <- confusionMatrix(nbPreProc_predicted, validation_numeric[,1])
+CM_nbPreProc
+# validation accuracy remains unchnaged 73.33%  from CV and default
+# Kappa : 0.4737
+#Sensitivity : 0.8333, Specificity : 0.6667 
+
+
+#4. kNN.PreProc:
+set.seed(seed)
+train.knnPreProc <- train(Caesarian~., data = train_numeric, method ='knn', metric=metric, trControl=trainControl, preProc=preProc)
+train.knnPreProc
+#k=7, training accuracy improved 66.33 (CV was k=7, 0.6166667, Kappa 0.2150305,  by default was k=9, 57.8%)
+#validation:
+set.seed(seed)
+knnPreProc_predicted <-  predict(train.knnPreProc, newdata=validation_numeric[,-1])
+CM_knnPreProc <- confusionMatrix(knnPreProc_predicted, validation_numeric[,1])
+CM_knnPreProc
+# validation accuracy improved dramatically 73.33%.
+# (with CV dropped to 46.67%, by default was 53.33%)
+#Sensitivity : 1.0000, Specificity : 0.5556        
+#As expexted, centering and scaling  data had a huge impact on knn model
+
+
+#5. SVM (Radial Kernel).PreProc
+set.seed(seed)
+train.svmPreProc <- train(Caesarian~., data = train_numeric, method ='svmRadial', metric=metric, trControl=trainControl, preProc=preProc)
+train.svmPreProc
+#sigma = 0.2294869 and C = 0.5 -same
+#training accuracy 0.647460, kappa=0.25639566 -unchanged
+#validation:
+set.seed(seed)
+svmPreProc_predicted <-  predict(train.svmPreProc, newdata=validation_numeric[,-1])
+CM_svmPreProc <- confusionMatrix(svmPreProc_predicted, validation_numeric[,1])
+CM_svmPreProc
+# validation accuracy remains unchanged = 66.67 %
+# again, well balanced model
+#Sensitivity : 0.8333, Specificity : 0.5556   
+
+
+#6. CART CV
+set.seed(seed)
+train.cartPreProc <- train(Caesarian~., data = train_numeric, method ='rpart', metric=metric, trControl=trainControl, preProc=preProc)
+train.cartPreProc
+#cp=0.03571429 -same
+# training accuracy dropped tiny bit 0.6204762, Kappa 0.21877009
+# (was 0.6260317, kappa 0.23265898)
+#validation:
+set.seed(seed)
+cartPreProc_predicted <-  predict(train.cartPreProc, newdata=validation_numeric[,-1])
+CM_cartPreProc <- confusionMatrix(cartPreProc_predicted, validation_numeric[,1])
+CM_cartPreProc
+# validation accuracy remains unchanged 66.67 %
+# Kappa : 0.359 
+
+
+#7. Random Forest PreProc:
+set.seed(seed)
+train.rfPreProc <- train(Caesarian~., data = train_numeric, method ='rf', metric=metric, trControl=trainControl, preProc=preProc)
+train.rfPreProc
+#mtry = 3 -same
+#training accuracy improved a bit 0.5515873, kappa 0.06930500
+# (was 0.5460317  0.05615426 with CV and 57% by default)
+#validation:
+set.seed(seed)
+rfPreProc_predicted <-  predict(train.rfPreProc, newdata=validation_numeric[,-1])
+CM_rfPreProc <- confusionMatrix(rfPreProc_predicted, validation_numeric[,1])
+CM_rfPreProc
+# validation accuracy remains dropped to 46.67%, Kappa : -0.0526 (best was by default)
+
+
+#Comparing models built with data preprocessing:
+set.seed(seed)
+PreProc_models_list<-list(LDA_PreProc=train.ldaPreProc, LogisticRegression_PreProc=train.glmnetPreProc, NaiveBayes_PreProc=train.nbPreProc, kNN_PreProc=train.knnPreProc, RegressionTrees_PreProc=train.cartPreProc, SVM_Radial_PreProc=train.svmPreProc,RandomForest_PreProc = train.rfPreProc)
+#PreProc_models_list
+PreProc_results<- resamples(PreProc_models_list)
+summary(PreProc_results) 
+
+#library(lattice)
+#dotplot(PreProc_results)
+
+```
+
+
+
+
+
+====
+
+#2. SVM (Radial Kernel).preProc
+
+```{r}
+#(with CV training accuracy increased by 1%, however validation acc.remained unchanged before)
+set.seed(seed)
+training.svmPreProc <- train(diagnosis~., data = training_data, method ='svmRadial', metric=metric, trControl=trainControl, preProc=preProc)
+training.svmPreProc
+#sigma = 0.05088443 and C = 1
+#training accuracy  unchanged 97.41% 
+#validation:
+set.seed(seed)
+validation.svmPreProc_predicted <-  predict(training.svmPreProc, newdata=validation_data[,-1])
+CM_svmPreProc <- confusionMatrix(validation.svmPreProc_predicted, validation_data[,1])
+CM_svmPreProc
+# validation accuracy still remains unchanged = 96.47 %
+
+#3. Random Forest preProc:
+set.seed(seed)
+training.rfPreProc <- train(diagnosis~., data = training_data, method ='rf', metric=metric, trControl=trainControl, preProc=preProc)
+training.rfPreProc
+#mtry = 16  
+#training accuracy improved again by a bit=96.24% (was=96.15%  with CV and 95.95% by default) 
+#validation:
+set.seed(seed)
+validation.rfPreProc_predicted <-  predict(training.rfPreProc, newdata=validation_data[,-1])
+CM_rfPreProc <- confusionMatrix(validation.rfPreProc_predicted, validation_data[,1])
+CM_rfPreProc
+# validation accuracy remains unchanged 95.29 % (same as with CV or by default)
+
+#4. kNN should improve a lot with preProc:
+set.seed(seed)
+training.knnPreProc <- train(diagnosis~., data = training_data, method ='knn', metric=metric, trControl=trainControl, preProc=preProc)
+training.knnPreProc
+#k=5 (was k=9), training accuracy=96.74, Kappa=0.9293497 
+#validation:
+set.seed(seed)
+validation.knnPreProc_predicted <-  predict(training.knnPreProc, newdata=validation_data[,-1], type = 'prob')  ## for ROC curve
+
+set.seed(seed)
+validation.knnPreProc_predicted2 <-  predict(training.knnPreProc, newdata=validation_data[,-1])  ## for confusion Matrix
+CM_knnPreProc <- confusionMatrix(validation.knnPreProc_predicted2, validation_data[,1])
+CM_knnPreProc
+# validation accuracy 96.47% (was 91.39% with CV and 97% by default!)
+
+
+#Comparing top 4 models (PreProc):
+set.seed(seed)
+PreProc_models_list<-list(LogisticRegression_PreProc=training.glmnetPreProc, SVM_Radial_PreProc=training.svmPreProc, RandomForest_PreProc = training.rfPreProc, kNN_PreProc = training.knnPreProc)
+PreProc_results<- resamples(PreProc_models_list)
+summary(PreProc_results) 
+
+library(lattice)
+dotplot(PreProc_results)
+
+```
+
+
+
+
+
+
+================
+================
+
+
+```{r}
+#TRAIN:
+ordinary.svm_predicted1 = predict(ordinary.svm1, data = train_numeric)
+summary(ordinary.svm_predicted1) 
+
+confusionMatrix1<- confusionMatrix(ordinary.svm_predicted1, train_numeric$Caesarian)
+
+confusionMatrix1
+
+```
+
+
+Let's validate and re-evaluate:
+```{r}
+
+ordinary.svm_predicted2 = predict(ordinary.svm2, data = validation_numeric)
+summary(ordinary.svm_predicted2) 
+
+confusionMatrix2<- confusionMatrix(ordinary.svm_predicted2, validation_numeric$Caesarian)
+
+confusionMatrix2
+```
+
+By default, SVM has selected nonlinear model (SVM Kernel "radial"). 
+Model also optimized at Cost=1 (large margin classification is rather soft - samples inside the margins are penalized less than with higher C). 
+Model has done C-Classification. 
+Number of Support Vectors are 15..
+
+
+1.4 Trying to improve the accuracy of the default.svm model with CV 
+
+Now, we apply cross validation in SVM model to see if there is improvement in its prediction ability. 
+
+```{r}
+
+library(kernlab)
+
+trainControl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+metric <- 'Accuracy'
+
+set.seed(7)
+svm_Linear_cv <- train(Caesarian~., data = train_numeric, method = 'svmLinear', metric=metric, trControl = trainControl)
+
+
+summary(svm_Linear_cv)
+
+svm_Linear_cv_predicted1<- predict(svm_Linear_cv, data=train_numeric)
+summary(svm_Linear_cv_predicted1) 
+
+confusionMatrix3<- confusionMatrix(svm_Linear_cv_predicted1, train_numeric$Caesarian)
+
+confusionMatrix3
+```
+Validation:
+```{r}
+library(kernlab)
+
+trainControl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+metric <- 'Accuracy'
+
+set.seed(7)
+svm2_Linear_cv <- train(Caesarian~., data = validation_numeric, method = 'svmLinear', metric=metric, trControl = trainControl)
+
+
+summary(svm2_Linear_cv)
+
+svm2_Linear_cv_predicted2<- predict(svm2_Linear_cv, data=validation_numeric)
+summary(svm2_Linear_cv_predicted2) 
+
+confusionMatrix4<- confusionMatrix(svm2_Linear_cv_predicted2, validation_numeric$Caesarian)
+
+confusionMatrix4
+```
+
+```{r}
+#library(caret)
+
+#x10 CV harness:
+trainControl <- trainControl(method = 'repeatedcv', number=10, repeats = 3)
+metric <- "Accuracy"
+
+#All models are by default 
+#LDA
+set.seed(9)
+fitCS.lda <- train(Caesarian~., data = train_numeric, method ='lda', metric=metric, trControl=trainControl, na.action=na.omit)
+print(fitCS.lda)
+#58.8%
+
+#GLMNET
+set.seed(9)
+fitCS.glmnet <- train(Caesarian~., data = train_numeric, method ='glmnet', metric=metric, trControl=trainControl, na.action=na.omit)
+fitCS.glmnet
+#1.00   0.0326598632  accuracy=0.6012698  0.1786666
+
+
+#kNN
+set.seed(9)
+fitCS.knn <-  train(Caesarian~., data = train_numeric, method="knn", metric=metric, trControl=trainControl)
+fitCS.knn
+#9  0.6101587  0.1946776
+
+#svm
+set.seed(9)
+fitCS.svm <-  train(Caesarian~., data = train_numeric, method="svmRadial", metric=metric, trControl=trainControl)
+fitCS.svm
+# 1.00  0.6396825   0.24915198
+
+#rf
+set.seed(9)
+fitCS.rf <-  train(Caesarian~., data = train_numeric, method="rf", metric=metric, trControl=trainControl)
+fitCS.rf
+#2     0.5584127  0.085758467
+
+#CART
+set.seed(9)
+fitCS.cart <-  train(Caesarian~., data = train_numeric, method="CART", metric=metric, trControl=trainControl)
+fitCS.cart
+```
+
+
+```{r}
+#DELETE:
+#Let's validate and re-evaluate svm_Linear_cv model:
+set.seed(seed)
+svm_Linear_cv2 = svm(Caesarian~.,data = validation_numeric)
+summary(svm_Linear_cv2)
+#SV=15
+#Radial Kernel
+#C=1
+
+svm_Linear_cv_predicted2 = predict(svm_Linear_cv2, newdata = validation_numeric[,-1])
+summary(svm_Linear_cv_predicted2) 
+
+confusionMatrix4<- confusionMatrix(svm_Linear_cv_predicted2, validation_numeric$Caesarian)
+
+confusionMatrix4
+```
+DELETE:
+Validation gave high Accuracy=0.933, p=0.005, Kappa=0.8571, MAcnemar's p=1.000, Sensitivity=0.833, Specificity=1.00
+
+
+
+#SVM Radial Kernel model training  with CV and preprocessing:
+```{r}
+#library(kernlab)
+#SVM (Radial Kernel)
+trainControl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+metric <- "Accuracy"
+set.seed(7)
+svm_Radial_cv <- train(Caesarian~., data = train_numeric, method ='svmRadial', metric=metric, preProc=c("center", "scale"), trControl=trainControl)
+
+print(svm_Radial_cv)
+```
+
+Best training accuracy reached when parameter 'sigma' was held constant=0.2294869
+Accuracy was used to select the optimal model using the largest value.
+The final values used for the model was C = 0.5.
+The accuracy = 0.647
+Kappa = 0.256
+Accuracy of this model is lower than the simple model with "radial" type.
+
+```{r}
+# P.S. same training but w/o pre-processing and CV
+set.seed(7)
+svm_Radial_ordinary <- train(Caesarian~., data = train_numeric, method ='svmRadial')
+
+print(svm_Radial_ordinary)
+```
+
+
+Validation:
+```{r}
+trainControl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+metric <- "Accuracy"
+set.seed(7)
+svm2_Radial_cv <- train(Caesarian~., data = validation_numeric, method ='svmRadial', metric=metric, preProc=c("center", "scale"), trControl=trainControl)
+
+print(svm2_Radial_cv)
+
+svm2_Radial_cv
+```
+
+
+
+``` {r}
+#STASH:
+#
+#CART - classification and regression trees:
+set.seed(7)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(diagnosis~., data = dataset, method ='rpart', metric=metric, tuneGrid=grid, preProc=c("center", "scale"), trControl=trainControl)
+
+print(fit.cart)
+
+#Random Forest
+set.seed(7)
+fit.rf <- train(diagnosis~., data = dataset, method ='rf', metric=metric, preProc=c("center", "scale"), trControl=trainControl)
+
+print(fit.rf)
+
+```
+
+
+We can tune SVM model with HYPER PARAMETERS C and gamma. Let's  see if model accuracy improves. 
+```{r}
+#We take range of C values from 0.01 to 2.5 (calculated till 0.50 indeed):
+grid <- expand.grid(C = c(0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
+svm_Linear_Grid <- train(Caesarian ~., data = train_numeric, method = "svmLinear", trControl=trainControl, metric=metric,
+preProcess = c("center", "scale"), tuneGrid = grid,
+tuneLength = 10)
+
+svm_Linear_Grid
+#C=5
+#Accuracy=0.610
+#Kappa=0.238
+
+#Validation:
+svm2_Linear_Grid <- train(Caesarian ~., data = validation_numeric, method = "svmLinear", trControl=trainControl, metric=metric,
+preProcess = c("center", "scale"), tuneGrid = grid,
+tuneLength = 10)
+
+svm2_Linear_Grid
+#C=0.01
+#Accuracy=0.655
+#Kappa=0.000
+```
+
+
+```{r}
+set.seed(3233)
+svm_Radial <- train(Caesarian ~., data = train_numeric, method = "svmRadial",
+                                    trControl=trainControl,metric=metric,
+                                    preProcess = c("center", "scale"),
+                                    tuneLength = 10)
+```
+Support Vector Machines with Radial Basis Function Kernel
+80 samples
+5 predictor
+2 classes: '0', '1'
+Pre-processing: centered (5), scaled (5)
+Resampling: Cross-Validated (10 fold, repeated 3 times)
+Summary of sample sizes: 71, 72, 72, 72, 73, 73, ...
+Resampling results across tuning parameters:
+C Accuracy Kappa
+0.25 0.6093915 0.14372559
+0.50 0.6707011 0.32367981
+1.00 0.6381614 0.25688123
+2.00 0.6212302 0.22192343
+4.00 0.5928571 0.16922655
+8.00 0.5871693 0.16469149
+16.00 0.5913360 0.17885126
+32.00 0.5556217 0.10723957
+64.00 0.5172619 0.03346007
+128.00 0.5010582 -0.00360852
+
+Tuning parameter 'sigma' was held constant at a value of 0.2772785 Accuracy was used to select the optimal model using the largest value. The final values used for the model were sigma = 0.2772785 and C = 0.5.
+Let's test the model now and evaluate it's accuracy:
+```{r}
+pred=predict(svm_Radial, newdata=ceas)
+confusionMatrix(as.factor(pred), as.factor(ceas$Caesarian))
+```
+Confusion Matrix and Statistics
+Reference Prediction 0 1
+0 258 1 938
+Accuracy : 0.7875
+95% CI : (0.6817, 0.8711)
+No Information Rate : 0.575
+P-Value [Acc > NIR] : 5.404e-05
+Kappa : 0.5635
+Mcnemar's Test P-Value : 1
+Sensitivity : 0.7353
+Specificity : 0.8261
+Pos Pred Value : 0.7576
+Neg Pred Value : 0.8085
+Prevalence : 0.4250
+Detection Rate : 0.3125
+Detection Prevalence : 0.4125
+Balanced Accuracy : 0.7807
+'Positive' Class : 0
+
+We can see that accuracy of "radial" model is 79% which is higher than linear models. Let us see if finetuning of "radial" model improves the model or not by changing values of C and Sigma
+```{r}
+#parameter tuning:
+grid_radial <- expand.grid(
+                   sigma = c(0,0.01, 0.02, 0.025, 0.03, 0.04, 0.05, 0.06,                                  0.07,0.08, 0.09, 0.1, 0.25, 0.5, 0.75,0.9),
+                   C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75,
+                         1, 1.5, 2,5))
+
+set.seed(3233)
+#model:
+svm_Radial_Grid <- train(Ceasarian ~., data = ceas, method = "svmRadial",                              trControl=trctrl,
+                         preProcess = c("center", "scale"),
+                         tuneGrid = grid_radial,
+                         tuneLength = 10)
+svm_Radial_Grid
+#testing and evaluating:
+pred=predict(svm_Radial_Grid, newdata=ceas)
+confusionMatrix(pred, ceas$Ceasarian)
+
+```
+
+
+Confusion Matrix and Statistics
+Reference Prediction 0 1
+0 2716 1 730
+Accuracy : 0.7125
+95% CI : (0.6005, 0.8082)
+No Information Rate : 0.575
+P-Value [Acc > NIR] : 0.007869
+Kappa : 0.4314
+Mcnemar's Test P-Value : 0.095293
+Sensitivity : 0.7941
+Specificity : 0.6522
+Pos Pred Value : 0.6279
+Neg Pred Value : 0.8108
+Prevalence : 0.4250
+Detection Rate : 0.3375
+Detection Prevalence : 0.5375
+Balanced Accuracy : 0.7231
+'Positive' Class : 0
+
+*Conclusion on svm_Radial_Grid with finetuning:*
+Cross validation with different values of C and sigma degraded the model accuracy. 
+
+We can try many other finetuning alternatives and other algorithms to improve the prediction. For now, we can select svm model with highest classification accuracy.
+
+
+=============================
+#kNN
+
+##Train kNN model
+
+We will use class::knn() with k=6. 
+
+```{r}
+library(class)
+knn6.ordinary <- knn(train = train_numeric, test = validation_numeric, cl = train_numeric$Caesarian, k = 6)
+
+summary(knn6.ordinary)
+```
+
+```{r}
+
+#x10 CV harness:
+trainControl <- trainControl(method = 'repeatedcv', number=10, repeats = 3)
+metric <- "Accuracy"
+
+#kNN (k=7 is the optimal):
+#set.seed(7)
+fit.knn <- train(Caesarian~., data = train_numeric, method ='knn', metric=metric, preProc=c("center", "scale"), trControl=trainControl)
+
+print(fit.knn)
+```
+
+
+Evaluating training performance
+
+We will use the confusion matrix to find the performance of the model.
+gmodels::CrossTable
+
+```{r}
+caes_knn6 <- knn(train = caes_train, test = caes_test, cl = label_train, k = 6)
+
+summary(caes_knn6)
+
+#Evaluating training performance
+#gmodels::CrossTable
+cm_knn6 =CrossTable(x = label_test, y = caes_knn6, prop.chisq = FALSE)
+cm_knn6
+
+```
+
+```{r}
+cm_knn6 =CrossTable(x = label_test, y = caes_knn6, prop.chisq = FALSE)
+#cm_knn6
+```
+Train accuracy of kNN with k=6 on train set:
+(TN+TP/Total)
+```{r}
+(24+39)/64
+```
+it is 98.4%
+
+
+?????? Testing on valid set:
+```{r}
+#knn.predict(caes_train, caes_test, y={}, dist.matrix, k=1, agg.meth=if (is.factor(y)) "majority" else "mean", ties.meth="min")
+
+#caes_knn6_prediction <- knn.predict(model = caes_knn6, data = caes_test)
+cm_knn6_prediction <-  confusionMatrix(x=label_test, y=caes_knn6_prediction, prop.chisq = FALSE)
+```
+
+
+Train
+k=5
+
+```{r}
+#k=5
+caes_knn5 <- knn(train = caes_train, test = caes_test, cl = label_train, k = 5)
+
+summary(caes_knn5)
+
+#Evaluating training performance
+#gmodels::CrossTable
+cm_knn5 =CrossTable(x = label_test, y = caes_knn5, prop.chisq = FALSE)
+cm_knn5
+
+#training accuracy is 100%
+```
+
+
+```{r}
+#k=4
+caes_knn4 <- knn(train = caes_train, test = caes_test, cl = label_train, k = 4)
+
+summary(caes_knn4)
+
+#Evaluating training performance
+#gmodels::CrossTable
+cm_knn4 =CrossTable(x = label_test, y = caes_knn4, prop.chisq = FALSE)
+cm_knn4
+
+#training accuracy is 100%
+```
+
+```{r}
+#k=3
+caes_knn3 <- knn(train = caes_train, test = caes_test, cl = label_train, k = 3)
+
+summary(caes_knn3)
+
+#Evaluating training performance
+#gmodels::CrossTable
+cm_knn3 =CrossTable(x = label_test, y = caes_knn3, prop.chisq = FALSE)
+cm_knn3
+
+#training accuracy is 100%
+```
+```{r}
+#k=2
+caes_knn2 <- knn(train = caes_train, test = caes_test, cl = label_train, k = 2)
+
+summary(caes_knn2)
+
+#Evaluating training performance
+#gmodels::CrossTable
+cm_knn2 =CrossTable(x = label_test, y = caes_knn2, prop.chisq = FALSE)
+cm_knn2
+
+(23+38)/64
+
+#training accuracy is 95.3%
+```
+
+
+
+===============
+
+#Logistic Regression
+```{r}
+library(caret)
+library(ROCR)
+library(pROC)
+library(MASS)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(ggfortify)
+library(glmnet)
+library(tidyverse)
+library(e1071)
+library(FactoMineR)
+library(factoextra)
+```
+
+##GLM Logistic Regression, method="boot"
+```{r}
+
+ctrl =  trainControl(method = "boot", 15)
+# bootstrapped 15 repititions
+
+caes_train_regression <- caes[1:16,1:6] #not normalized data!!!! 
+dim(caes_train_regression)
+
+caes_test_regression <- caes[17:80,1:6]
+dim(caes_test_regression)
+
+glm_regression <- train(Caesarian ~ BP + heartProblem, data = caes_train_regression,
+                          method = 'glm', trControl= ctrl) 
+```
+
+```{r}
+glm_regression 
+```
+Train accuracy 45.5% only
+
+```{r}
+glm_test_pred <- predict(glm_regression, newdata = caes_test_regression)
+cm_glm_test <- table(x=label_test, y=glm_test_pred)
+# median residual value should be close to zero
+#median(resid(glm_regression)) ##train() cannot produce residuals on no-numeric variables
+cm_glm_test
+(21+13)/(21+13+30)
+```
+Test accuracy of glm with bootstrap is 53.1%
+
+
+#GLM LR on normalized data, same hyperparameters
+```{r}
+ctrl =  trainControl(method = "cv" , 10)
+# 10 fold cross validation
+
+caes_train_regression <- caes[1:16,1:6] #not normalized data!!!! 
+dim(caes_train_regression)
+
+caes_test_regression <- caes[17:80,1:6]
+dim(caes_test_regression)
+
+glm_regression_cv <- train(Caesarian ~ BP + heartProblem, data = caes_train_regression,
+                          method = 'glm', trControl= ctrl) 
+
+glm_regression_cv
+#Train accuracy 60%
+
+glm_cv_test_pred <- predict(glm_regression_cv, newdata = caes_test_regression)
+cm_glm_cv_test <- table(x=label_test, y=glm_cv_test_pred)
+# median residual value should be close to zero
+#median(resid(glm_regression)) ##train() cannot produce residuals on no-numeric variables
+cm_glm_cv_test
+(21+13)/(21+13+30)
+#Test accuracy 55%
+```
+
+
+## GLM LR with CV for all predictors:
+```{r}
+ctrl =  trainControl(method = "cv" , 10)
+# 10 fold cross validation
+
+caes_train_regression <- caes[1:16,1:6] #not normalized data!!!! 
+dim(caes_train_regression)
+
+caes_test_regression <- caes[17:80,1:6]
+dim(caes_test_regression)
+
+glm_regression_CV <- train(Caesarian ~ ., data = caes_train_regression,
+                          method = 'glm', trControl= ctrl) 
+
+glm_regression_CV
+#Train accuracy 40%
+
+glm_CV_test_pred <- predict(glm_regression_CV, newdata = caes_test_regression)
+cm_glm_CV_test <- table(x=label_test, y=glm_CV_test_pred)
+# median residual value should be close to zero
+#median(resid(glm_regression)) ##train() cannot produce residuals on no-numeric variables
+cm_glm_CV_test
+(14+25)/(39+25)
+
+#Test accuracy 60.9%
+```
+```{r}
+(14+25)/(14+25+25)
+
+
+
+### TRYING TO PRODUCE ROC CURVE HERE:.....
+library(pROC)
+
+
+# matrix for ROC():
+predicted_data_cv <- data.frame(prob = glm_CV_test_pred,
+                             Caesarian = test_classifier$Caesarian)
+
+roccurve_cv <- roc(data = predicted_data_cv, response = "Caesarian", "prob" ) 
+# roc() calculates confusion matrix for test set and outputs AUC score
+#another option is to use confusionMatrix()
+roccurve  #AUC =0.8854
+plot(roccurve_cv)  # evaluation of a model performance on test to evaluate how well NewScore can predict caesarian(=1) or not diagnosis. 
+```
+
+
+## MCA for categorical data values with LR
+MCA analysis with FactoMineR::MCA()
+(by default: MCA(X, ncp = 5, graph = TRUE))
+X : a data frame with n rows (individuals) and p columns (categorical variables)
+ncp : number of dimensions kept in the final results.
+graph : a logical value. If TRUE a graph is displayed.
+
+(guidance from: https://r.789695.n4.nabble.com/How-to-use-PC1-of-PCA-and-dim1-of-MCA-as-a-predictor-in-logistic-regression-model-for-data-reduction-td3750251.html)
+
+```{r}
+# MCA data prep
+head(caes)
+head( caes_MCA<- caes[, 1:6])  #excl.Ind and Class_numeric
+#install.packages("ca")
+library(ca)
+mjca_caes <-  mjca(caes_MCA) 
+
+summary(mjca_caes) 
+
+# Dim1 explains 626.6% of variance, of the highest dim score on scree plot. 16 dimensions, 7contributing
+
+
+# which values I could use like PC1 in PCA?
+#"rowcoord" in mjca1 will help:. 
+plot.mjca(mjca_caes)
+mjca_caes$rowcoord 
+
+caes_MCA$NewScore <- mjca_caes$rowcoord[, 1] #dim1
+
+head(caes_MCA)
+```
+```{r}
+# I will then use "NewScore" in place of 5 original features
+#data(caes)
+
+#split into training and test set 
+train_size <- floor(0.75 * nrow(caes_MCA))
+set.seed(324)
+train_Index <- sample(seq_len(nrow(caes_MCA)), size = train_size)
+train_classifier <- caes_MCA[train_Index,]
+test_classifier <- caes_MCA[-train_Index,]
+
+train_classifier <- train_classifier[,1:7]
+test_classifier <- test_classifier[,1:7]
+
+
+dim(train_classifier) #[60:7]
+dim(test_classifier) #[20:7]
+```
+```{r}
+#MCA_glm model:
+MCA_glm <- glm(Caesarian ~ NewScore, data = train_classifier, family = binomial)
+summary(MCA_glm)
+#Intercept: 0.8137  NewScore -0.9992
+
+```
+
+
+```{r}
+
+library(factoextra)
+#factoextra::fviz_screeplot()
+#plotting Dim1 of MCA variables:
+#viz_screeplot(mjca_caes)
+fviz_contrib(mjca_caes, choice = "var", axes = 1)
+```
+
+
+Testing the model and evaluating its accuracy (ROC and AUC):
+
+```{r}
+#Test set:
+library(pROC)
+
+MCA_glm_predicted <- predict(MCA_glm, newdata=test_classifier, type="response") 
+
+# Note: feed ROC not with vectors (predicted and actual) as here:
+# roccurve <- roc(data=test_classifier, MCA_glm$Class, predicted_classification) 
+
+# But with a single matrix instead:
+predicted_data <- data.frame(prob = MCA_glm_predicted,
+                             Caesarian = test_classifier$Caesarian)
+
+roccurve <- roc(data = predicted_data, response = "Caesarian", "prob" ) 
+# roc() calculates confusion matrix for test set and outputs AUC score
+#another option is to use confusionMatrix()
+roccurve  #AUC =0.8854
+plot(roccurve)  # evaluation of a model performance on test to evaluate how well NewScore can predict caesarian(=1) or not diagnosis. 
+
+```
+
+Both the ROC curve and the high AUC value (Area Under the Curve) indicate that the model is good in predicting no DM (i.e. true positives).
+
+#### Vizualizing the results:
+
+! Checking if log odds and independent variables are linearly correlated
+```{r}
+
+# To convert from a probability to odds, divide the probability by one minus that probability. So if the probability is 10% or 0.10 , then the odds are 0.1/0.9 or ‘10%/90%’ or 1 out of 9 
+prediction_odds <- MCA_glm_predicted / (1 - MCA_glm_predicted)
+log_prediction_odds <- log(prediction_odds)
+
+#log_odds and indep.variable X must be linearly correlated:
+cor.test(log_prediction_odds, test_classifier$NewScore)
+plot(log_prediction_odds, test_classifier$NewScore)
+
+# Yes, they are correlated!
+
+```
+
+## Super ordinary glm() with 5 predictors
+```{r}
+ordinary_glm_train <- train_classifier[, 1:6]
+ordinary_glm_test <- test_classifier[, 1:6]
+#ordinary_glm model w/o feature selection:
+ordinary_glm <- glm(Caesarian ~ ., data = ordinary_glm_train, family = binomial)
+summary(ordinary_glm)
+#Intercept: -0.71966, age 0.01260,deliveryNumber  0.20569, BP -0.09990, deliveryTime -0.27646, heartProblem 1.81953
+
+
+library(pROC)
+
+ordinary_glm_predicted <- predict(ordinary_glm, newdata=ordinary_glm_test, type="response") 
+
+# Note: feed ROC not with vectors (predicted and actual) as here:
+# roccurve <- roc(data=test_classifier, MCA_glm$Class, predicted_classification) 
+
+# But with a single matrix instead:
+ordinary_glm_predicted_matrix <- data.frame(prob = ordinary_glm_predicted,
+                             Caesarian = ordinary_glm_test$Caesarian)
+
+roccurve_ordinary_glm <- roc(data = ordinary_glm_predicted_matrix, response = "Caesarian", "prob" ) 
+# roc() calculates confusion matrix for test set and outputs AUC score
+#another option is to use confusionMatrix()
+roccurve_ordinary_glm  #AUC =0.6719
+plot(roccurve)  # evaluation of a model performance on test to evaluate how well NewScore can predict caesarian(=1) or not diagnosis. 
+```
+
+
+## Super ordinary glm() with 2 predictors
+```{r}
+ordinary_glm_train <- train_classifier[, 1:6]
+ordinary_glm_test <- test_classifier[, 1:6]
+#ordinary_glm model with selected 2 predictors from ChiSq test:
+ordinary_glm_2 <- glm(Caesarian ~ BP + heartProblem, data = ordinary_glm_train, family = binomial)
+summary(ordinary_glm_2)
+#Intercept: -0.33018, BP -0.04774, heartProblem 1.94066
+
+
+library(pROC)
+
+ordinary_glm_2_predicted <- predict(ordinary_glm_2, newdata=ordinary_glm_test, type="response") 
+
+# Note: feed ROC not with vectors (predicted and actual) as here:
+# roccurve <- roc(data=test_classifier, MCA_glm$Class, predicted_classification) 
+
+# But with a single matrix instead:
+ordinary_glm_2_predicted_matrix <- data.frame(prob = ordinary_glm_2_predicted,
+                             Caesarian = ordinary_glm_test$Caesarian)
+
+roccurve_ordinary_glm_2 <- roc(data = ordinary_glm_2_predicted_matrix, response = "Caesarian", "prob" ) 
+# roc() calculates confusion matrix for test set and outputs AUC score
+#another option is to use confusionMatrix()
+roccurve_ordinary_glm_2  #AUC =0.6146
+plot(roccurve)  # evaluation of a model performance on test to evaluate how well NewScore can predict caesarian(=1) or not diagnosis. 
+```
+
